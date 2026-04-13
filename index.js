@@ -1,4 +1,4 @@
-const Joi = require('joi')
+const Joi = require("joi");
 
 const expressJoi = function (schemas, options = { strict: false }) {
   // 自定义校验选项
@@ -7,34 +7,43 @@ const expressJoi = function (schemas, options = { strict: false }) {
   if (!options.strict) {
     // allowUnknown 允许提交未定义的参数项
     // stripUnknown 过滤掉那些未定义的参数项
-    options = { allowUnknown: true, stripUnknown: true, ...options }
+    options = { allowUnknown: true, stripUnknown: true, ...options };
   }
 
   // 从 options 配置对象中，删除自定义的 strict 属性
-  delete options.strict
+  delete options.strict;
 
-  // TODO: 用户指定了什么 schema，就应该校验什么样的数据
-  return function (req, res, next) {
-    ;['body', 'query', 'params'].forEach(key => {
-      // 如果当前循环的这一项 schema 没有提供，则不执行对应的校验
-      if (!schemas[key]) return
+  // 返回中间件函数
+  return async function (req, res, next) {
+    const keys = ["body", "query", "params", "headers", "cookies"];
 
-      // 执行校验
-      const schema = Joi.object(schemas[key])
-      const { error, value } = schema.validate(req[key], options)
+    // 遍历所有可能的请求参数项，逐一校验
+    for (let key of keys) {
+      if (!schemas[key]) continue; // 如果没有提供某一项的校验规则，则跳过该项
 
-      if (error) {
-        // 校验失败
-        throw error
-      } else {
-        // 校验成功，把校验的结果重新赋值到 req 对应的 key 上
-        req[key] = value
+      const schema = Joi.object(schemas[key]);
+
+      // 在校验之前可以进行自动修复（比如去除空格、调整大小写等）
+      if (key === "body" || key === "query") {
+        // 对 body 和 query 进行修复
+        if (req[key]?.username)
+          req[key].username = req[key].username.trim().toLowerCase();
       }
-    })
 
-    // 校验通过
-    next()
-  }
-}
+      try {
+        const { error, value } = schema.validate(req[key], options); // 执行校验
+        if (error) {
+          return res.cc(error.message || "请求参数验证失败"); // 如果校验失败，返回错误信息
+        } else {
+          req[key] = value; // 如果校验通过，把校验后的值赋回 req
+        }
+      } catch (err) {
+        return res.cc(err.message || "请求参数验证失败"); // 捕获可能的异常
+      }
+    }
 
-module.exports = expressJoi
+    next(); // 校验通过，继续执行下一个中间件或路由
+  };
+};
+
+module.exports = expressJoi;
